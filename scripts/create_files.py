@@ -6,7 +6,6 @@ import os
 import sys
 import PIL
 from PIL import Image, ImageOps
-import shutil
 
 
 img_size = 129
@@ -14,28 +13,27 @@ heightmap_side_length = 10
 max_height = 5
 
 master_string = ""
-model_name = "heightmap"
 
 world_template = """
 
 <sdf version="1.5">
   <world name="default">
 
-<scene>
-  <sky>
-    <clouds>
-      <speed>50</speed>
-    </clouds>
-  </sky>
-    <ambient>0 0 0 1.0</ambient>
-    <shadows>0</shadows>
-</scene>
+    <scene>
+    <sky>
+        <clouds>
+        <speed>50</speed>
+        </clouds>
+    </sky>
+        <ambient>0 0 0 1.0</ambient>
+        <shadows>0</shadows>
+    </scene>
 
 
-<include>
-    <uri>model://sun</uri>
-    <pose>0 0 0 0 0 0</pose>
-</include>
+    <include>
+        <uri>model://sun</uri>
+        <pose>0 0 0 0 0 0</pose>
+    </include>
 
 %s
 
@@ -45,11 +43,11 @@ world_template = """
 """
 
 model_template = """
-<include>
-    <uri>model://{}</uri>
-    <name>{}</name>
-    <pose>{} {} {} 0 0 0</pose>
-</include>
+    <include>
+        <uri>model://{}</uri>
+        <name>{}</name>
+        <pose>{} {} {} 0 0 0</pose>
+    </include>
 """
 
 
@@ -58,22 +56,20 @@ def rescale_and_resize(img_name, img_size, img_out):
     # Open image
     img = Image.open(img_name)
     img = ImageOps.grayscale(img)
+    img = img.resize((int(img_size), int(img_size)), PIL.Image.ANTIALIAS)
+
     if invert:
 
-        # img = ImageOps.invert(img)
-
-        # Binary Thresholding in PIL
-
         threshold = 230
-        # Resize image
-        img = img.resize((int(img_size), int(img_size)), PIL.Image.ANTIALIAS)
 
         def fn(x):
             if x > threshold:
                 return 0
             else:
                 return 255
+
         img = img.convert('L').point(fn, mode='1')
+
     # Get data from image
     img_list = list(img.getdata())
 
@@ -86,7 +82,7 @@ def rescale_and_resize(img_name, img_size, img_out):
 
     img_list_new = [0] * img_size * img_size
 
-    # Rescale all pixels to the range 0 to 255 (in line with unit8 values)
+    # Rescale all pixels to the range 0 to 255 (in line with uint8 values)
     for i in range(0, img_size):
         for j in range(0, img_size):
             img_list_new[i * img_size + j] = \
@@ -106,6 +102,8 @@ def rescale_and_resize(img_name, img_size, img_out):
     # Save image
     img.save(img_out)
 
+    print("Saved image")
+
     img.close()
 
 
@@ -119,7 +117,7 @@ def yaml_loader():
         max_height = params['max_height']
 
 
-def world_creator():
+def world_creator(model_name):
     global master_string, world_template, model_template, img_size
 
     if img_size != 0:
@@ -136,30 +134,31 @@ def world_creator():
     tree.write(world_path)
 
 
-def write_heightmap_model(heightmap_path):
+def write_heightmap_model(heightmap_path, model_name):
     global img_size, package_path
 
     config_template = read_template(
         package_path + "/config/templates/config.txt")
-    write_config_file(config_template)
+    write_config_file(config_template, model_name)
 
-    img_out_path = package_path +\
-        "/config/models/%s/%s.png" % (model_name, model_name)
+    os.makedirs(package_path + \
+        "/models/%s/materials/heightmap" % model_name)
+
+    img_out_path = package_path + \
+        "/models/%s/materials/heightmap/%s.png" % (model_name, model_name)
     rescale_and_resize(heightmap_path, img_size, img_out_path)
     model_template = read_template(
         package_path + "/config/templates/heightmap_sdf.txt")
-    write_sdf_file(model_template)
-    # sdf_template = read_template(package_path+"config/template/heightmap_sdf.txt")
+    write_sdf_file(model_template, model_name)
 
 
-def write_config_file(config_template):
+def write_config_file(config_template, model_name):
 
     creator_name = "gaurav"
     email = "contact@blackcoffeerobotics.com"
     description = "heightmap model"
 
-    model_path = package_path + "/config/models/%s" % model_name
-    shutil.rmtree(model_path)
+    model_path = package_path + "/models/%s" % model_name
     os.mkdir(model_path)
     # Replace indicated values
     config_template = config_template.replace("$MODELNAME$", model_name)
@@ -169,6 +168,9 @@ def write_config_file(config_template):
 
     # Ensure results are a string
     config_content = str(config_template)
+
+    # Create config file
+    os.system("touch %s" % model_path + "/model.config")
 
     # Open config file
     target = open(model_path + "/model.config", "w")
@@ -180,7 +182,7 @@ def write_config_file(config_template):
     target.close()
 
 
-def write_sdf_file(sdf_template):
+def write_sdf_file(sdf_template, model_name):
     global heightmap_side_length, max_height
 
     # Ask for desired dimensions and heights of the Gazebo model
@@ -188,7 +190,13 @@ def write_sdf_file(sdf_template):
     size_y = str(size_x)
     size_z = str(max_height)
 
-    model_path = package_path + "/config/models/" + model_name
+    model_path = package_path + "/models/" + model_name
+    textures_path = package_path + "/config/textures"
+    model_textures_path = model_path + "/materials/textures"
+
+    # Create files and directories
+    os.makedirs(model_textures_path)
+    os.system("cp %s/* %s" % (textures_path, model_textures_path))
 
     # Filling in content
     sdf_template = sdf_template.replace("$FILENAME$", model_name)
@@ -227,7 +235,7 @@ if __name__ == '__main__':
 
     arg_list = sys.argv
 
-    world_name = arg_list[1]
+    heightmap_name = arg_list[1]
     invert = False
     if (len(arg_list) > 2):
         flag = arg_list[2]
@@ -236,17 +244,17 @@ if __name__ == '__main__':
 
     rospack = rospkg.RosPack()
     package_path = rospack.get_path('heightmap_generation')
-    yaml_path = package_path + "/config/heightmaps/config.yaml"
-    world_path = package_path + "/config/worlds/" + world_name
-    heightmap_path = package_path + "/config/heightmaps/%s.png" % model_name
+    yaml_path = package_path + "/config/heightmaps/%s/config.yaml" % heightmap_name
+    heightmap_path = package_path + "/config/heightmaps/%s/heightmap.png" % heightmap_name
+    world_path = package_path + "/worlds/%s.world" % heightmap_name
 
     os.system("touch %s" % world_path)
 
     yaml_loader()
     if img_size > 0:
-        write_heightmap_model(heightmap_path)
+        write_heightmap_model(heightmap_path, heightmap_name)
 
-    world_creator()
+    world_creator(heightmap_name)
 
     # Double inversion for image preservation
 
